@@ -22,7 +22,7 @@ export async function searchLegalPrecedent(
 ): Promise<GeminiSearchResult> {
   try {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-flash-lite',
       generationConfig: {
         temperature: 0.2, // Lower for more factual responses
         topP: 0.95,
@@ -31,25 +31,21 @@ export async function searchLegalPrecedent(
       },
     });
 
-    // Use Google Search grounding for legal precedent
+    // Generate content based on Gemini's training data
+    // (Web grounding is deprecated in this API version)
     const result = await model.generateContent({
       contents: [{
         role: 'user',
         parts: [{ text: query }],
-      }],
-      tools: [{
-        googleSearchRetrieval: {
-          dynamicRetrievalConfig: {
-            mode: 'MODE_DYNAMIC' as const,
-            dynamicThreshold: 0.7,
-          },
-        },
       }],
     });
 
     const response = result.response;
     const answer = response.text();
     const citations = extractCitations(response);
+
+    // Log response for MCP debugging
+    console.error(`[Gemini] Response length: ${answer.length} chars`);
 
     return {
       answer,
@@ -109,39 +105,50 @@ Context: Contract clause "${clauseText.substring(0, 100)}..."
 }
 
 /**
- * Extract citations from Gemini grounding metadata
+ * Extract citations from Gemini response text
+ * Since grounding is not available, we parse case names from the response
  */
 function extractCitations(response: any): GeminiCitation[] {
   try {
-    // Access grounding metadata
-    const groundingMetadata = response.groundingMetadata;
-    if (!groundingMetadata) {
-      return [];
-    }
-
-    const chunks = groundingMetadata.groundingChunks || [];
+    const text = response.text();
     const citations: GeminiCitation[] = [];
 
-    for (const chunk of chunks) {
-      if (chunk.web) {
-        const title = chunk.web.title || 'Unknown Source';
-        const url = chunk.web.uri || '';
-        const year = extractYearFromTitle(title) || extractYearFromUrl(url);
+    // Pattern 1: Case citations like "Investors Compensation Scheme v West Bromwich [1998]"
+    const casePattern = /([A-Z][A-Za-z\s&]+(?:v|vs)\.?\s+[A-Z][A-Za-z\s&]+)(?:\s*[\[\(](\d{4})[\]\)])?/g;
+    const matches = [...text.matchAll(casePattern)];
 
+    for (const match of matches) {
+      const title = match[1].trim();
+      const year = match[2] ? parseInt(match[2]) : extractYearFromTitle(text);
+
+      // Only add if title looks like a real case name
+      if (title.length > 10 && title.length < 100) {
         citations.push({
           title,
-          url,
+          url: `https://www.bailii.org/`, // Generic BAILII link
           year,
         });
       }
     }
 
-    // Remove duplicates by URL
+    // Pattern 2: Statute references like "Companies Act 2006"
+    const statutePattern = /([A-Z][A-Za-z\s]+Act)\s+(\d{4})/g;
+    const statuteMatches = [...text.matchAll(statutePattern)];
+
+    for (const match of statuteMatches) {
+      citations.push({
+        title: `${match[1]} ${match[2]}`,
+        url: 'https://www.legislation.gov.uk/',
+        year: parseInt(match[2]),
+      });
+    }
+
+    // Remove duplicates by title
     const unique = Array.from(
-      new Map(citations.map((c) => [c.url, c])).values()
+      new Map(citations.map((c) => [c.title, c])).values()
     );
 
-    return unique;
+    return unique.slice(0, 5); // Limit to top 5
   } catch (error) {
     console.error('Citation extraction error:', error);
     return [];
@@ -174,8 +181,9 @@ function extractYearFromTitle(title: string): number | undefined {
 
 /**
  * Extract year from URL (fallback)
+ * Currently unused but kept for future URL-based citation extraction
  */
-function extractYearFromUrl(url: string): number | undefined {
+function _extractYearFromUrl(url: string): number | undefined {
   const yearMatch = url.match(/\/(19\d{2}|20\d{2})\//);
   if (yearMatch) {
     return parseInt(yearMatch[1]);

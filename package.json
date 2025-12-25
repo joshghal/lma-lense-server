@@ -10,15 +10,16 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
     "@google/generative-ai": "^0.21.0",
-    "pdf-parse": "^1.1.1",
-    "dotenv": "^16.4.5"
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.5",
+    "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/pdf-parse": "^1.1.4",
-    "typescript": "^5.7.2",
-    "tsx": "^4.19.2"
+    "pdfkit": "^0.17.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

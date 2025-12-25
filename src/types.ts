@@ -27,6 +27,7 @@ export interface Clause {
   section: string;
   text: string;
   type: ClauseType;
+  parentSection?: string; // For hierarchy tracking
 }
 
 export type ClauseType =

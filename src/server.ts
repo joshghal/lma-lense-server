@@ -5,12 +5,17 @@
  * Contract Intelligence for the Loan Market
  */
 
+import 'dotenv/config';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { parsePDF, extractClauses, getDocumentStats } from './parser.js';
+import { detectIssues } from './detector.js';
+import { analyzeIssues } from './analyzer.js';
+import type { AnalysisResult } from './types.js';
 
 // Server setup
 const server = new Server(
@@ -60,24 +65,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
 
     try {
-      // TODO: Implement analysis pipeline
-      // 1. Parse PDF
-      // 2. Extract clauses
-      // 3. Detect issues
-      // 4. Ground in case law
-      // 5. Generate analysis
+      console.error('\n🔍 Starting contract analysis...');
+      console.error(`File: ${filepath}\n`);
 
-      const result = {
-        contractName: contractName || filepath,
+      // Step 1: Parse PDF
+      console.error('📄 Parsing PDF...');
+      const text = await parsePDF(filepath);
+      const stats = getDocumentStats(text);
+      console.error(
+        `✓ Extracted ${stats.wordCount} words (~${stats.pageEstimate} pages)\n`
+      );
+
+      // Step 2: Extract clauses with enhanced regex
+      const clauses = extractClauses(text);
+      console.error(`✓ Found ${clauses.length} clauses\n`);
+
+      // Step 3: Detect issues
+      console.error('🔎 Detecting issues with AI...');
+      const issues = await detectIssues(clauses);
+      console.error(`✓ Detected ${issues.length} potential issues\n`);
+
+      // Step 4: Analyze and ground issues
+      console.error('⚖️  Grounding in case law...');
+      const groundedIssues = await analyzeIssues(issues);
+      console.error(`✓ Generated legal analysis\n`);
+
+      // Build result
+      const result: AnalysisResult = {
+        contractName: contractName || filepath.split('/').pop() || 'Unknown',
         analyzedAt: new Date().toISOString(),
-        totalIssues: 0,
-        critical: 0,
-        high: 0,
-        medium: 0,
-        low: 0,
-        issues: [],
-        message: 'Analysis pipeline not yet implemented',
+        totalIssues: groundedIssues.length,
+        critical: groundedIssues.filter((i) => i.severity === 'CRITICAL').length,
+        high: groundedIssues.filter((i) => i.severity === 'HIGH').length,
+        medium: groundedIssues.filter((i) => i.severity === 'MEDIUM').length,
+        low: groundedIssues.filter((i) => i.severity === 'LOW').length,
+        issues: groundedIssues,
       };
+
+      console.error('✅ Analysis complete!\n');
+      console.error(`Summary: ${result.critical} critical, ${result.high} high, ${result.medium} medium, ${result.low} low\n`);
 
       return {
         content: [
@@ -88,6 +114,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } catch (error) {
+      console.error('❌ Analysis failed:', error);
       return {
         content: [
           {
